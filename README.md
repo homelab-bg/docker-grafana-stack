@@ -99,12 +99,24 @@ Then in TrueNAS's Custom App YAML editor:
 ```yaml
 include:
   - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.yml
-  # add this second line too if you also want the Traefik overlay applied:
-  # - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.traefik.yml
 ```
 
-`include:` resolves `${VAR}` substitutions against a `.env` sitting next to the included file
-(standard Compose Spec behavior, confirmed already working this way for
+Without the Traefik overlay. **If you want it applied too, don't add it as a second top-level
+`include:` list item** - confirmed live that this raises `services.grafana conflicts with
+imported resource`. Two separate `include:` entries are treated as independent sub-projects by
+Compose, not a base+override pair, and both defining a `grafana` service collides. The
+documented way to combine a base file with its override under `include:` is listing both paths
+under one entry's `path:` key instead:
+
+```yaml
+include:
+  - path:
+      - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.yml
+      - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.traefik.yml
+```
+
+`include:` resolves `${VAR}` substitutions against a `.env` sitting next to the included
+file(s) (standard Compose Spec behavior, confirmed already working this way for
 `docker-traefik-portainer`) - the `.env` created above is picked up automatically, nothing to
 paste into a separate TrueNAS environment-variables form.
 
