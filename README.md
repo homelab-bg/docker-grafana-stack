@@ -53,6 +53,46 @@ docker compose up -d        # agent-only host: starts just alloy
 docker compose --profile full up -d   # full-stack host: starts loki + grafana + alloy
 ```
 
+## Deploying the full stack on TrueNAS (Custom App)
+
+TrueNAS SCALE's own App system runs this, not a plain `docker compose` CLI invocation - via
+Apps > Discover Apps > Custom App > Install via YAML, using Compose's `include:` directive to
+point at the real file instead of pasting YAML into the UI (same pattern already used for
+`docker-traefik-portainer` on this TrueNAS).
+
+Clone into a **sibling** subfolder of the data directories, not the same path - this repo's
+own working tree has top-level folders literally named `alloy/`, `loki/`, `grafana/`, which
+would otherwise collide with data directories of the same name (Alloy's runtime state would
+end up written directly into this git working tree):
+
+```sh
+git clone git@github.com:homelab-bg/docker-grafana-stack.git /mnt/nvme_pool1/Apps/grafana/stack
+cd /mnt/nvme_pool1/Apps/grafana/stack
+cp .env.example .env
+# edit .env: LOKI_DATA_PATH/GRAFANA_DATA_PATH/ALLOY_DATA_PATH point at the sibling data dirs
+# (/mnt/nvme_pool1/Apps/grafana/{loki,grafana,alloy}), COMPOSE_PROFILES=full, a real
+# GRAFANA_ADMIN_PASSWORD, and LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push
+chown -R 10001:10001 /mnt/nvme_pool1/Apps/grafana/loki
+chown -R 472:472 /mnt/nvme_pool1/Apps/grafana/grafana
+```
+
+Then in TrueNAS's Custom App YAML editor:
+
+```yaml
+include:
+  - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.yml
+```
+
+`include:` resolves `${VAR}` substitutions against a `.env` sitting next to the included file
+(standard Compose Spec behavior, confirmed already working this way for
+`docker-traefik-portainer`) - the `.env` created above is picked up automatically, nothing to
+paste into a separate TrueNAS environment-variables form.
+
+**Unverified - check on first deploy**: whether TrueNAS's app engine honors
+`COMPOSE_PROFILES` from that `.env` the same way the plain CLI does. If `loki`/`grafana`
+don't start alongside `alloy`, that's the first thing to check - haven't been able to confirm
+this detail of TrueNAS's internal app engine from outside it.
+
 ## Pointing syslog-only devices at this
 
 For hardware that can't run Alloy (UniFi UDM, switches, Proxmox via `rsyslog` forwarding,
