@@ -67,6 +67,10 @@ host's IP, UDP port `514`. No agent, no config on this side beyond what's alread
   default datasource, nothing to click through manually.
 - Quick query from Grafana's Explore view once logs are flowing: `{container=~".+"}` should
   show every container Alloy has discovered on that host.
+- Containers carrying `logging_jobname`/`stackname` Docker labels (the `docker-truenas`
+  stacks already do, via their own `x-common-labels` anchor) get those promoted to real `job`/
+  `stack` Loki labels too - e.g. `{stack="home-assistant-stack"}`. Containers without those
+  labels just don't get them; nothing breaks either way.
 
 ## Adding a new agent-only host
 

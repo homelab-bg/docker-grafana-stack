@@ -15,6 +15,19 @@ discovery.docker "containers" {
 // "container" label so Grafana can actually filter by it. Used purely as
 // a rule-provider here (forward_to left empty) - entries flow through
 // loki.source.docker below, not through this component directly.
+//
+// The job/stack rules below promote two Docker container labels
+// (logging_jobname, stackname) that already exist on every container in
+// the docker-truenas stacks (home-assistant-stack, traefik-portainer,
+// vscode, hello-world) via their own x-common-labels anchor - previously
+// inert since no Loki/Alloy existed to read them. discovery.docker
+// exposes a container's own Docker labels as
+// __meta_docker_container_label_<name> (confirmed against Alloy's docs).
+// Containers that don't carry these labels (this stack's own
+// loki/grafana/alloy containers, anything not using that anchor) just
+// don't get a job/stack label - an empty relabel result drops the label
+// rather than setting it to "", standard Prometheus-style relabel
+// behavior.
 loki.relabel "docker" {
   forward_to = []
 
@@ -22,6 +35,16 @@ loki.relabel "docker" {
     source_labels = ["__meta_docker_container_name"]
     regex         = "/(.*)"
     target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_logging_jobname"]
+    target_label  = "job"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_stackname"]
+    target_label  = "stack"
   }
 }
 
