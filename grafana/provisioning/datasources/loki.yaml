@@ -1,0 +1,14 @@
+# Auto-provisions Loki as a Grafana datasource on startup - avoids the
+# manual "Add data source" UI step. url uses the compose service name
+# since Grafana and Loki share the grafana_stack network on the
+# full-stack host (this file is only relevant there - it does nothing on
+# an agent-only host, since grafana never starts there).
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: true
+    editable: false
