@@ -1,0 +1,45 @@
+---
+# Traefik overlay - optional, same pattern as every other docker-truenas
+# stack. The base docker-compose.yml stays LAN-only/plain HTTP by design
+# (logging infra doesn't need public exposure - see README's "LAN-only,
+# plain HTTP" note). Apply this only if you specifically want Grafana
+# reachable via a real HTTPS hostname through the shared Traefik instance:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.traefik.yml --profile full up -d
+#
+# Only grafana gets routed - loki/alloy stay LAN-only regardless of
+# whether this overlay is applied. Every LOKI_PUSH_URL in this project
+# points at a LAN hostname; exposing Loki's push/query API publicly isn't
+# something this design assumes.
+x-logging:
+  &default-logging
+  driver: "json-file"
+  options:
+    max-size: "1m"
+    max-file: "1"
+    tag: "{{.Name}}"
+
+x-common-labels: &default-labels
+  logging_jobname: "containerlogs"
+  stackname: ${MONITORING_STACK}
+
+services:
+  grafana:
+    ports: !reset []
+    expose:
+      - 3000
+    networks:
+      - traefik
+    labels:
+      <<: *default-labels
+      traefik.enable: true
+      traefik.http.routers.grafana.rule: Host(`${GRAFANA_HOST:?set GRAFANA_HOST to Grafana's hostname}`)
+      traefik.http.routers.grafana.tls: true
+      traefik.http.routers.grafana.tls.certresolver: letsencrypt
+      traefik.http.services.grafana.loadbalancer.server.port: "3000"
+    logging: *default-logging
+
+networks:
+  traefik:
+    name: ${NETWORK:-traefik}
+    external: true

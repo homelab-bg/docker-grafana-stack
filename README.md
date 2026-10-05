@@ -3,8 +3,10 @@
 Centralized logging: Loki (storage/query), Grafana (UI), Alloy (log shipping - both
 Docker-container logs and a syslog receiver for appliances that can't run an agent).
 
-LAN-only, plain HTTP throughout - no TLS/Caddy in front of this. Logging infra doesn't need
-public exposure; hosts on the LAN talk to it directly.
+LAN-only, plain HTTP by default - no TLS in front of this. Logging infra doesn't need public
+exposure; hosts on the LAN talk to it directly. An optional Traefik overlay exists if you
+specifically want Grafana's UI reachable via a real HTTPS hostname (see "Optional Traefik
+overlay" below) - `loki`/`alloy` stay LAN-only regardless of whether it's applied.
 
 ## Two deployment shapes, one repo
 
@@ -53,6 +55,22 @@ docker compose up -d        # agent-only host: starts just alloy
 docker compose --profile full up -d   # full-stack host: starts loki + grafana + alloy
 ```
 
+## Optional Traefik overlay
+
+Same pattern as every other `docker-truenas` stack: `docker-compose.traefik.yml` is an
+overlay, not a replacement - applying it swaps Grafana from a direct `:3000` LAN port to
+routing through the shared Traefik instance with a real HTTPS hostname. `loki`/`alloy` are
+untouched either way; nothing in this design expects Loki's push/query API to be reachable
+over the public internet.
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.traefik.yml --profile full up -d
+```
+
+Needs `GRAFANA_HOST`, `NETWORK` (defaults to `traefik`, matching the shared external network
+every other stack joins), and `MONITORING_STACK` set in `.env` - see `.env.example`. Not
+needed at all for the default LAN-only deployment.
+
 ## Deploying the full stack on TrueNAS (Custom App)
 
 TrueNAS SCALE's own App system runs this, not a plain `docker compose` CLI invocation - via
@@ -81,6 +99,8 @@ Then in TrueNAS's Custom App YAML editor:
 ```yaml
 include:
   - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.yml
+  # add this second line too if you also want the Traefik overlay applied:
+  # - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.traefik.yml
 ```
 
 `include:` resolves `${VAR}` substitutions against a `.env` sitting next to the included file
