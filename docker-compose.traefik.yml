@@ -31,9 +31,9 @@ services:
       traefik.http.routers.grafana.tls.certresolver: letsencrypt
       traefik.http.services.grafana.loadbalancer.server.port: "3000"
       # Confirmed live (docker-green): without this, grafana being on two
-      # networks (this one, and grafana_stack for reaching Loki) leaves
+      # networks (this one, and grafana for reaching Loki) leaves
       # Traefik's Docker provider to guess which one to actually connect
-      # through - it picked grafana_stack, which Traefik's own container
+      # through - it picked grafana, which Traefik's own container
       # isn't attached to, so every proxied request hung until timeout
       # even though TLS/ACME and a direct wget from inside the traefik
       # container both worked fine. This pins it to the one network

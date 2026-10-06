@@ -50,7 +50,7 @@ services:
     command: ["-config.file=/etc/loki/config.yaml"]
     ports:
       - "3100:3100"
-    networks: [grafana_stack]
+    networks: [grafana]
     labels:
       <<: *default-labels
     logging: *default-logging
@@ -72,7 +72,7 @@ services:
       GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL}
     ports:
       - "3000:3000"
-    networks: [grafana_stack]
+    networks: [grafana]
     # Traefik-specific labels (traefik.enable etc.) merge in on top of
     # these when docker-compose.traefik.yml is applied - labels merge as
     # a map across -f files/include:, same as networks/logging do, so
@@ -129,13 +129,19 @@ services:
       # inside the container on agent-only hosts now, instead of an
       # always-on listener as before.
       - "514:514/udp"
-    networks: [grafana_stack]
+    networks: [grafana]
     labels:
       <<: *default-labels
     logging: *default-logging
 
+# Named, not left to Compose's auto-generated <project>_<network> default -
+# same rationale as the volumes block below (stable regardless of which
+# directory this repo happens to be cloned into), and matches the pattern
+# docker-traefik-portainer/docker-vscode already use for the external
+# traefik network.
 networks:
-  grafana_stack:
+  grafana:
+    name: ${GRAFANA_NETWORK:-grafana}
     driver: bridge
 
 # Named, not left implicit/anonymous - gives stable `docker volume`
