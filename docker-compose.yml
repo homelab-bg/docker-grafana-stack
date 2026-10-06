@@ -15,12 +15,19 @@ services:
     container_name: loki
     profiles: ["full"]
     restart: unless-stopped
-    # Loki's official image's own non-root user. chown the data path to
-    # match before first start (see README) - mismatched ownership is the
-    # most common first-boot failure with this image.
+    # Loki's official image's own non-root user. Only matters for the
+    # bind-mount override below (see README) - Docker auto-initializes a
+    # fresh named volume's ownership from the image's own baked-in
+    # /loki directory, so the chown-before-first-start problem is
+    # specific to LOKI_DATA_PATH actually being set to a real host path.
     user: "10001:10001"
     volumes:
-      - ${LOKI_DATA_PATH:-./data/loki}:/loki
+      # Named volume (declared below) by default - override with a real
+      # host/dataset path (e.g. on TrueNAS, for ZFS snapshots/reliability)
+      # by setting LOKI_DATA_PATH in .env. Resolution happens before
+      # Compose decides bind-mount vs named-volume, so this works either
+      # way from the same line.
+      - ${LOKI_DATA_PATH:-loki_data}:/loki
       - ./config/loki/loki-config.yaml:/etc/loki/config.yaml:ro
     command: ["-config.file=/etc/loki/config.yaml"]
     ports:
@@ -32,11 +39,12 @@ services:
     container_name: grafana
     profiles: ["full"]
     restart: unless-stopped
-    # Grafana's official image's own non-root user - same chown note as loki.
+    # Grafana's official image's own non-root user - same note as loki's
+    # about this only mattering for the bind-mount override case.
     user: "472:472"
     depends_on: [loki]
     volumes:
-      - ${GRAFANA_DATA_PATH:-./data/grafana}:/var/lib/grafana
+      - ${GRAFANA_DATA_PATH:-grafana_data}:/var/lib/grafana
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
@@ -55,7 +63,7 @@ services:
     container_name: alloy
     restart: unless-stopped
     volumes:
-      - ${ALLOY_DATA_PATH:-./data/alloy}:/var/lib/alloy/data
+      - ${ALLOY_DATA_PATH:-alloy_data}:/var/lib/alloy/data
       - ./config/alloy/config.alloy:/etc/alloy/config.alloy:ro
       # :ro only blocks writes to the socket *file* - it does not restrict
       # which Docker API calls can be made once connected (socket access is
@@ -80,3 +88,17 @@ services:
 networks:
   grafana_stack:
     driver: bridge
+
+# Named, not left implicit/anonymous - gives stable `docker volume`
+# names regardless of which directory this repo happens to be cloned
+# into (Compose otherwise prefixes volume names with the project name,
+# normally derived from the directory name). Only actually created if a
+# service's *_DATA_PATH is left unset - a declared-but-unreferenced
+# volume here is harmless once overridden to a bind mount.
+volumes:
+  loki_data:
+    name: loki_data
+  grafana_data:
+    name: grafana_data
+  alloy_data:
+    name: alloy_data

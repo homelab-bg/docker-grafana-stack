@@ -48,8 +48,11 @@ config/
   alloy/config.alloy
   loki/loki-config.yaml
   grafana/provisioning/datasources/loki.yaml
-data/                        # gitignored - default runtime state if *_DATA_PATH is unset
 ```
+
+Data (`loki`/`grafana`/`alloy`) lives in Docker-managed named volumes by default - no extra
+folder in this repo for it. Override `*_DATA_PATH` in `.env` to use a real bind-mount path
+instead (see "Setup" below).
 
 ## Setup
 
@@ -58,26 +61,30 @@ cp .env.example .env
 ```
 
 Everything in `.env.example` is optional for a quick local test - `LOKI_DATA_PATH`/
-`GRAFANA_DATA_PATH`/`ALLOY_DATA_PATH` all fall back to `./data/<service>` (gitignored) if left
-commented out, so `cp .env.example .env` with zero edits works on something like `docker-green`
-with no real dataset needed. Fill in for an actual deployment:
-- `LOKI_DATA_PATH` / `GRAFANA_DATA_PATH` / `ALLOY_DATA_PATH` - real dataset/directory paths.
-  Only `ALLOY_DATA_PATH` matters on an agent-only host (the other two services never start
-  there without the `full` profile active, so their paths are unused).
+`GRAFANA_DATA_PATH`/`ALLOY_DATA_PATH` all fall back to a Docker-managed named volume
+(`loki_data`/`grafana_data`/`alloy_data`) if left commented out, so `cp .env.example .env`
+with zero edits works on something like `docker-green` - no real dataset needed, and no
+chown step either (see below). Fill in for an actual deployment:
+- `LOKI_DATA_PATH` / `GRAFANA_DATA_PATH` / `ALLOY_DATA_PATH` - set to a real dataset/directory
+  path to use a bind mount instead of the named-volume default (e.g. on TrueNAS, for ZFS
+  snapshots/reliability). Only `ALLOY_DATA_PATH` matters on an agent-only host (the other two
+  services never start there without the `full` profile active, so their paths are unused).
 - `LOKI_PUSH_URL` - `http://loki:3100/loki/api/v1/push` on the full-stack host (same compose
   network, resolves by service name); the real LAN hostname/IP on an agent-only host, e.g.
   `http://truenas.lan.example.internal:3100/loki/api/v1/push`.
 - `GRAFANA_ADMIN_PASSWORD` - full-stack host only (unused on an agent-only host, since
   `loki`/`grafana` never start there).
 
-**Before first start with the `full` profile**, match the data directories' ownership to
-what the official images expect - this is the single most common first-boot failure with
-these images (silent permission-denied, container restart-loops). Using the real paths you
-set in `.env`, or the `./data/...` defaults if you left them unset:
+**Ownership only needs attention if you've overridden `*_DATA_PATH` to a real bind-mount
+path** - the single most common first-boot failure with these images is a mismatch between
+the host directory's ownership and what the image expects (silent permission-denied,
+container restart-loops). Not a concern with the named-volume default: Docker auto-
+initializes a fresh volume's ownership from the image's own baked-in directory, matching the
+container's user automatically. If you have overridden the path:
 
 ```sh
-chown -R 10001:10001 "${LOKI_DATA_PATH:-./data/loki}"
-chown -R 472:472 "${GRAFANA_DATA_PATH:-./data/grafana}"
+chown -R 10001:10001 "$LOKI_DATA_PATH"
+chown -R 472:472 "$GRAFANA_DATA_PATH"
 ```
 
 (`ALLOY_DATA_PATH` doesn't need this - Alloy's image runs as root by default.)
@@ -174,11 +181,14 @@ host's IP, UDP port `514`. No agent, no config on this side beyond what's alread
   stacks already do, via their own `x-common-labels` anchor) get those promoted to real `job`/
   `stack` Loki labels too - e.g. `{stack="home-assistant-stack"}`. Containers without those
   labels just don't get them; nothing breaks either way.
+- If using the named-volume default, `docker volume inspect loki_data` (or `grafana_data`/
+  `alloy_data`) shows the real host path Docker is actually storing data at - useful since
+  there's no local folder in the repo to just go look at.
 
 ## Adding a new agent-only host
 
 1. Clone this repo onto the host.
-2. `cp .env.example .env`, set `ALLOY_DATA_PATH` (or leave it for the `./data/alloy` default)
-   and `LOKI_PUSH_URL` (pointing at the real Loki host).
+2. `cp .env.example .env`, set `ALLOY_DATA_PATH` (or leave it for the `alloy_data` named-volume
+   default) and `LOKI_PUSH_URL` (pointing at the real Loki host).
 3. `docker compose up -d` - only `alloy` starts, since the `full` profile is never activated
    here.

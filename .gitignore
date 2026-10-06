@@ -1,6 +1,7 @@
 .env
 
-# Default relative data paths (ALLOY_DATA_PATH/LOKI_DATA_PATH/
-# GRAFANA_DATA_PATH all fall back to ./data/<service> when unset in .env -
-# real runtime state, not something to ever commit).
+# Not the default anymore (that's now a named Docker volume - see
+# docker-compose.yml) - kept as a defensive catch-all in case
+# ALLOY_DATA_PATH/LOKI_DATA_PATH/GRAFANA_DATA_PATH are ever manually
+# overridden to a local ./data/<service>-style relative path.
 /data/
