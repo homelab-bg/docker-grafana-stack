@@ -5,7 +5,7 @@
 # plain HTTP" note). Apply this only if you specifically want Grafana
 # reachable via a real HTTPS hostname through the shared Traefik instance:
 #
-#   docker compose -f docker-compose.yml -f docker-compose.traefik.yml --profile full up -d
+#   docker compose -f docker-compose.yml -f docker-compose.full.yml -f docker-compose.traefik.yml up -d
 #
 # Only grafana gets routed - loki/alloy stay LAN-only regardless of
 # whether this overlay is applied. Every LOKI_PUSH_URL in this project
