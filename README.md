@@ -106,9 +106,33 @@ over the public internet.
 docker compose -f docker-compose.yml -f docker-compose.traefik.yml --profile full up -d
 ```
 
-Needs `GRAFANA_HOST`, `NETWORK` (defaults to `traefik`, matching the shared external network
-every other stack joins), and `MONITORING_STACK` set in `.env` - see `.env.example`. Not
-needed at all for the default LAN-only deployment.
+Needs `GRAFANA_HOST` and `NETWORK` (defaults to `traefik`, matching the shared external
+network every other stack joins) set in `.env` - see `.env.example`. Not needed at all for
+the default LAN-only deployment. (`STACK_NAME` is unrelated to this overlay specifically -
+see "Self-labeling" below; it applies regardless of whether Traefik is used.)
+
+## Self-labeling
+
+`loki`/`grafana`/`alloy` carry the same `x-common-labels` convention the `docker-truenas`
+stacks use on their own containers - `logging_jobname`/`stackname` Docker labels, applied
+unconditionally in the base `docker-compose.yml` (not gated behind the Traefik overlay).
+Alloy's own `discovery.docker` picks these up from every container on the host regardless of
+which compose project it belongs to, and promotes them to real `job`/`stack` Loki labels (see
+`config/alloy/config.alloy`) - so this stack's own logs show up in Grafana queryable the same
+way every other stack's do, e.g. `{stack="grafana-stack"}`.
+
+`STACK_NAME` in `.env` controls the value (defaults to `grafana-stack` if unset - see
+`.env.example`). Named `STACK_NAME` here rather than `MONITORING_STACK` (what the
+`docker-truenas` stacks call the equivalent variable) - the old name reads as "the stack
+that's doing the monitoring," when what it actually controls is "what to label *this* stack
+as, inside the monitoring system." Deliberately only renamed in this repo for now, not
+across the other four - **outstanding, tracked separately**: rename `MONITORING_STACK` to
+`STACK_NAME` in `docker-home-assistant-stack`, `docker-traefik-portainer`, `docker-vscode`,
+and `docker-hello-world` too, once this is validated.
+
+When the Traefik overlay is applied, its `traefik.*` labels merge on top of these - Compose
+merges `labels:`/`logging:` as maps across `-f` files the same way it merges `networks:`, so
+the overlay doesn't need to redeclare `logging_jobname`/`stackname` itself.
 
 ## Deploying on TrueNAS (Custom App) - currently blocked, see above
 
@@ -177,9 +201,10 @@ host's IP, UDP port `514`. No agent, no config on this side beyond what's alread
   default datasource, nothing to click through manually.
 - Quick query from Grafana's Explore view once logs are flowing: `{container=~".+"}` should
   show every container Alloy has discovered on that host.
-- Containers carrying `logging_jobname`/`stackname` Docker labels (the `docker-truenas`
-  stacks already do, via their own `x-common-labels` anchor) get those promoted to real `job`/
-  `stack` Loki labels too - e.g. `{stack="home-assistant-stack"}`. Containers without those
+- Any container carrying `logging_jobname`/`stackname` Docker labels - this stack's own three
+  (see "Self-labeling" above), and the `docker-truenas` stacks via their own `x-common-labels`
+  anchor - gets those promoted to real `job`/`stack` Loki labels, e.g.
+  `{stack="grafana-stack"}` or `{stack="home-assistant-stack"}`. Containers without those
   labels just don't get them; nothing breaks either way.
 - If using the named-volume default, `docker volume inspect loki_data` (or `grafana_data`/
   `alloy_data`) shows the real host path Docker is actually storing data at - useful since

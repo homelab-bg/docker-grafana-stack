@@ -1,3 +1,21 @@
+# Same self-labeling pattern the docker-truenas stacks use, applied to this
+# stack's own containers too - without it, Alloy's job/stack relabeling
+# (see config/alloy/config.alloy) has nothing to promote for loki/grafana/
+# alloy themselves. STACK_NAME labels *this* stack for the monitoring
+# system to query by - not "the stack that's monitoring", which is what
+# the previous name (MONITORING_STACK) misleadingly implied.
+x-logging:
+  &default-logging
+  driver: "json-file"
+  options:
+    max-size: "1m"
+    max-file: "1"
+    tag: "{{.Name}}"
+
+x-common-labels: &default-labels
+  logging_jobname: "containerlogs"
+  stackname: ${STACK_NAME:-grafana-stack}
+
 services:
   # Only starts when the "full" profile is active (COMPOSE_PROFILES=full in
   # .env, or `docker compose --profile full up -d`) - the host actually
@@ -33,6 +51,9 @@ services:
     ports:
       - "3100:3100"
     networks: [grafana_stack]
+    labels:
+      <<: *default-labels
+    logging: *default-logging
 
   grafana:
     image: grafana/grafana:13.2.3
@@ -52,6 +73,14 @@ services:
     ports:
       - "3000:3000"
     networks: [grafana_stack]
+    # Traefik-specific labels (traefik.enable etc.) merge in on top of
+    # these when docker-compose.traefik.yml is applied - labels merge as
+    # a map across -f files/include:, same as networks/logging do, so
+    # that overlay doesn't need to redeclare logging_jobname/stackname
+    # itself.
+    labels:
+      <<: *default-labels
+    logging: *default-logging
 
   # No profile - always starts, on every host (full-stack or agent-only
   # alike). Same image/config everywhere; the only thing that differs
@@ -84,6 +113,9 @@ services:
       # full-stack host). Harmless idle listener everywhere else.
       - "514:514/udp"
     networks: [grafana_stack]
+    labels:
+      <<: *default-labels
+    logging: *default-logging
 
 networks:
   grafana_stack:
