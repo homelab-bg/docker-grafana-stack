@@ -154,18 +154,19 @@ actually solved (deferred for now, while validating the rest of the design on `d
 What follows is accurate for getting `alloy`-only running there today; treat the `full`
 profile part as unverified against TrueNAS specifically.
 
-Now that config lives under `config/` rather than top-level `alloy/`/`loki/`/`grafana/`
-folders, cloning directly into `/mnt/nvme_pool1/Apps/grafana/` (instead of the sibling
-`/stack` subfolder the old structure needed, to avoid colliding with the data directories of
-the same name) is probably safe again - worth re-confirming when this is actually revisited,
-not assumed:
+Clone directly into the project folder - no separate `/stack` subfolder needed anymore.
+That nesting existed only because the old structure's top-level `alloy/`/`loki/`/`grafana/`
+config folders would otherwise collide with sibling data directories of the same name; now
+that config lives entirely under `config/`, there's nothing at the repo's top level to
+collide with (confirmed by inspection - `config/`, `docker-compose*.yml`, `.env` are the only
+top-level entries). `.gitignore` covers `/loki/`, `/grafana/`, `/alloy/` for exactly this case:
 
 ```sh
-git clone git@github.com:homelab-bg/docker-grafana-stack.git /mnt/nvme_pool1/Apps/grafana/stack
-cd /mnt/nvme_pool1/Apps/grafana/stack
+git clone git@github.com:homelab-bg/docker-grafana-stack.git /mnt/nvme_pool1/Apps/grafana
+cd /mnt/nvme_pool1/Apps/grafana
 cp .env.example .env
-# edit .env: LOKI_DATA_PATH/GRAFANA_DATA_PATH/ALLOY_DATA_PATH point at the sibling data dirs
-# (/mnt/nvme_pool1/Apps/grafana/{loki,grafana,alloy}), a real GRAFANA_ADMIN_PASSWORD, and
+# edit .env: LOKI_DATA_PATH/GRAFANA_DATA_PATH/ALLOY_DATA_PATH point at sibling data dirs
+# inside this same directory (./loki, ./grafana, ./alloy), a real GRAFANA_ADMIN_PASSWORD, and
 # LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push
 chown -R 10001:10001 /mnt/nvme_pool1/Apps/grafana/loki
 chown -R 472:472 /mnt/nvme_pool1/Apps/grafana/grafana
@@ -173,7 +174,7 @@ chown -R 472:472 /mnt/nvme_pool1/Apps/grafana/grafana
 
 ```yaml
 include:
-  - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.yml
+  - /mnt/nvme_pool1/Apps/grafana/docker-compose.yml
 ```
 
 If you also want the Traefik overlay, use `path:` with a list rather than a second top-level
@@ -184,8 +185,8 @@ separate `include:` entries as independent sub-projects, not a base+override pai
 ```yaml
 include:
   - path:
-      - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.yml
-      - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.traefik.yml
+      - /mnt/nvme_pool1/Apps/grafana/docker-compose.yml
+      - /mnt/nvme_pool1/Apps/grafana/docker-compose.traefik.yml
 ```
 
 `include:` resolves `${VAR}` substitutions against a `.env` sitting next to the included

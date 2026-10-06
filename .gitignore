@@ -5,3 +5,11 @@
 # ALLOY_DATA_PATH/LOKI_DATA_PATH/GRAFANA_DATA_PATH are ever manually
 # overridden to a local ./data/<service>-style relative path.
 /data/
+
+# Same reasoning, for the TrueNAS pattern of cloning directly into the
+# project folder (no /stack subfolder needed now that config/ no longer
+# collides with top-level loki//grafana//alloy/ names) and pointing
+# *_DATA_PATH at sibling ./loki, ./grafana, ./alloy directories instead.
+/loki/
+/grafana/
+/alloy/
