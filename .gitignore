@@ -1,1 +1,6 @@
 .env
+
+# Default relative data paths (ALLOY_DATA_PATH/LOKI_DATA_PATH/
+# GRAFANA_DATA_PATH all fall back to ./data/<service> when unset in .env -
+# real runtime state, not something to ever commit).
+/data/

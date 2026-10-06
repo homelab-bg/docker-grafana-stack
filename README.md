@@ -11,25 +11,45 @@ overlay" below) - `loki`/`alloy` stay LAN-only regardless of whether it's applie
 ## Two deployment shapes, one repo
 
 Same `alloy` service runs everywhere - full-stack host and agent-only hosts alike. Only
-`LOKI_PUSH_URL` in `.env` differs between them. `loki`/`grafana` live in a separate file,
-`docker-compose.full.yml` - layering it in (`-f`/`include:`) is what brings them up, not a
-Compose profile. (Originally used `profiles: ["full"]` instead of a separate file - switched
-after confirming live that TrueNAS's app engine doesn't honor `COMPOSE_PROFILES` from `.env`
-the same way the plain CLI does. Ordinary `${VAR}` substitution into YAML content worked fine
-through TrueNAS's `include:`; profile activation - a control-plane decision about which
-services exist in the resolved model at all, not a text substitution - apparently isn't read
-the same way. Multi-file layering doesn't have this problem: "which services run" is purely
-"which files you list", nothing depends on an env var being honored correctly by whatever's
-doing the resolving.)
+`LOKI_PUSH_URL` in `.env` differs between them. `loki`/`grafana` are gated behind Compose's
+`profiles: ["full"]`; `alloy` carries no profile, so it's the zero-flag default. Profiles are
+additive-only (an untagged service always runs; a profile only ever adds services on top of
+that, never removes one) - so the achievable split is "alloy by default, loki+grafana only
+when `full` is explicitly activated," not the reverse.
 
-- **Full-stack host** (currently: TrueNAS) - runs all three. Receives everything: its own
-  Docker container logs, syslog from network gear, and pushes from every agent-only host.
-- **Agent-only host** (`docker-green`, `docker-mcp-agents`, etc.) - runs only `alloy`,
-  shipping that host's own Docker container logs to the full-stack host's Loki.
+- **Full-stack host** (currently: TrueNAS) - `--profile full` (or `COMPOSE_PROFILES=full` in
+  `.env`) brings up all three. Receives everything: its own Docker container logs, syslog
+  from network gear, and pushes from every agent-only host.
+- **Agent-only host** (`docker-green`, `docker-mcp-agents`, etc.) - no profile flag, so only
+  `alloy` starts, shipping that host's own Docker container logs to the full-stack host's Loki.
+
+**Known open issue, not yet resolved**: confirmed live that TrueNAS's app engine doesn't
+honor `COMPOSE_PROFILES` from `.env` the same way the plain CLI does when deployed via its
+Custom App `include:` mechanism - only `alloy` started there, `loki`/`grafana` didn't, despite
+the env var genuinely being set. Ordinary `${VAR}` substitution into YAML content worked fine
+through the same `include:`; profile activation specifically - a control-plane decision about
+which services exist in the resolved model at all, not a text substitution - apparently isn't
+read the same way. This repo went through a separate-file-per-layer structure for a while
+specifically to work around that, then back to this single-file+profiles structure (simpler,
+correct for every plain-CLI deployment) once higher priority became validating the design on
+`docker-green` first. **The TrueNAS-specific profile-activation problem is still real and
+still unresolved** - don't assume this works against TrueNAS again without re-testing it.
 
 Deliberately not split into a separate `docker-alloy` repo for the agent-only case - it's the
 exact same image/config either way, and a second repo would just be a second place to forget
 to bump the version pin.
+
+## Layout
+
+```
+docker-compose.yml           # alloy (default) + loki/grafana (profile: full)
+docker-compose.traefik.yml   # optional overlay - see below
+config/
+  alloy/config.alloy
+  loki/loki-config.yaml
+  grafana/provisioning/datasources/loki.yaml
+data/                        # gitignored - default runtime state if *_DATA_PATH is unset
+```
 
 ## Setup
 
@@ -37,30 +57,34 @@ to bump the version pin.
 cp .env.example .env
 ```
 
-Fill in:
+Everything in `.env.example` is optional for a quick local test - `LOKI_DATA_PATH`/
+`GRAFANA_DATA_PATH`/`ALLOY_DATA_PATH` all fall back to `./data/<service>` (gitignored) if left
+commented out, so `cp .env.example .env` with zero edits works on something like `docker-green`
+with no real dataset needed. Fill in for an actual deployment:
 - `LOKI_DATA_PATH` / `GRAFANA_DATA_PATH` / `ALLOY_DATA_PATH` - real dataset/directory paths.
   Only `ALLOY_DATA_PATH` matters on an agent-only host (the other two services never start
-  there, so their paths are unused).
+  there without the `full` profile active, so their paths are unused).
 - `LOKI_PUSH_URL` - `http://loki:3100/loki/api/v1/push` on the full-stack host (same compose
   network, resolves by service name); the real LAN hostname/IP on an agent-only host, e.g.
   `http://truenas.lan.example.internal:3100/loki/api/v1/push`.
 - `GRAFANA_ADMIN_PASSWORD` - full-stack host only (unused on an agent-only host, since
-  `docker-compose.full.yml` is never applied there).
+  `loki`/`grafana` never start there).
 
-**Before first start on the full-stack host**, match the data directories' ownership to what
-the official images expect - this is the single most common first-boot failure with these
-images (silent permission-denied, container restart-loops):
+**Before first start with the `full` profile**, match the data directories' ownership to
+what the official images expect - this is the single most common first-boot failure with
+these images (silent permission-denied, container restart-loops). Using the real paths you
+set in `.env`, or the `./data/...` defaults if you left them unset:
 
 ```sh
-chown -R 10001:10001 "$LOKI_DATA_PATH"
-chown -R 472:472 "$GRAFANA_DATA_PATH"
+chown -R 10001:10001 "${LOKI_DATA_PATH:-./data/loki}"
+chown -R 472:472 "${GRAFANA_DATA_PATH:-./data/grafana}"
 ```
 
 (`ALLOY_DATA_PATH` doesn't need this - Alloy's image runs as root by default.)
 
 ```sh
-docker compose up -d                                        # agent-only host: starts just alloy
-docker compose -f docker-compose.yml -f docker-compose.full.yml up -d   # full-stack host
+docker compose up -d                   # agent-only host: starts just alloy
+docker compose --profile full up -d    # full-stack host: starts loki + grafana + alloy
 ```
 
 ## Optional Traefik overlay
@@ -72,24 +96,32 @@ untouched either way; nothing in this design expects Loki's push/query API to be
 over the public internet.
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.full.yml -f docker-compose.traefik.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.traefik.yml --profile full up -d
 ```
 
 Needs `GRAFANA_HOST`, `NETWORK` (defaults to `traefik`, matching the shared external network
 every other stack joins), and `MONITORING_STACK` set in `.env` - see `.env.example`. Not
 needed at all for the default LAN-only deployment.
 
-## Deploying the full stack on TrueNAS (Custom App)
+## Deploying on TrueNAS (Custom App) - currently blocked, see above
 
 TrueNAS SCALE's own App system runs this, not a plain `docker compose` CLI invocation - via
 Apps > Discover Apps > Custom App > Install via YAML, using Compose's `include:` directive to
 point at the real file instead of pasting YAML into the UI (same pattern already used for
 `docker-traefik-portainer` on this TrueNAS).
 
-Clone into a **sibling** subfolder of the data directories, not the same path - this repo's
-own working tree has top-level folders literally named `alloy/`, `loki/`, `grafana/`, which
-would otherwise collide with data directories of the same name (Alloy's runtime state would
-end up written directly into this git working tree):
+**This doesn't fully work yet** - see the "Known open issue" note under "Two deployment
+shapes" above. `COMPOSE_PROFILES=full` in `.env` isn't honored through TrueNAS's `include:`
+the way it is through the plain CLI, so `loki`/`grafana` won't come up this way until that's
+actually solved (deferred for now, while validating the rest of the design on `docker-green`).
+What follows is accurate for getting `alloy`-only running there today; treat the `full`
+profile part as unverified against TrueNAS specifically.
+
+Now that config lives under `config/` rather than top-level `alloy/`/`loki/`/`grafana/`
+folders, cloning directly into `/mnt/nvme_pool1/Apps/grafana/` (instead of the sibling
+`/stack` subfolder the old structure needed, to avoid colliding with the data directories of
+the same name) is probably safe again - worth re-confirming when this is actually revisited,
+not assumed:
 
 ```sh
 git clone git@github.com:homelab-bg/docker-grafana-stack.git /mnt/nvme_pool1/Apps/grafana/stack
@@ -102,27 +134,20 @@ chown -R 10001:10001 /mnt/nvme_pool1/Apps/grafana/loki
 chown -R 472:472 /mnt/nvme_pool1/Apps/grafana/grafana
 ```
 
-Then in TrueNAS's Custom App YAML editor - **always use `path:` with a list, even for just
-two files**. A plain list of top-level `include:` entries (`- file1`, `- file2`) is treated by
-Compose as independent sub-projects, not a base+override pair - confirmed live that this
-raises `services.grafana conflicts with imported resource` the moment two of them define the
-same service:
-
 ```yaml
 include:
-  - path:
-      - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.yml
-      - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.full.yml
+  - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.yml
 ```
 
-Add `docker-compose.traefik.yml` as a third entry in that same `path:` list if you also want
-the Traefik overlay:
+If you also want the Traefik overlay, use `path:` with a list rather than a second top-level
+`include:` entry - confirmed live that two separate entries defining the same service (here,
+`grafana`) raises `services.grafana conflicts with imported resource`, since Compose treats
+separate `include:` entries as independent sub-projects, not a base+override pair:
 
 ```yaml
 include:
   - path:
       - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.yml
-      - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.full.yml
       - /mnt/nvme_pool1/Apps/grafana/stack/docker-compose.traefik.yml
 ```
 
@@ -131,25 +156,12 @@ file(s) (standard Compose Spec behavior, confirmed already working this way for
 `docker-traefik-portainer`) - the `.env` created above is picked up automatically, nothing to
 paste into a separate TrueNAS environment-variables form.
 
-**Why `docker-compose.full.yml` is a separate file rather than a Compose profile**: originally
-`loki`/`grafana` used `profiles: ["full"]` instead, activated via `COMPOSE_PROFILES=full` in
-`.env`. Confirmed live that TrueNAS's app engine doesn't honor that the same way the plain CLI
-does - only `alloy` came up, `loki`/`grafana` didn't, despite the env var genuinely being
-present in `.env`. Ordinary `${VAR}` substitution into YAML content (`LOKI_DATA_PATH` etc.)
-worked fine through the same `include:`, so this looks like profile activation specifically -
-a control-plane decision about which services exist in the resolved model, not a text
-substitution - isn't read from `.env` the same way by whatever TrueNAS uses internally to
-resolve `include:`. Switched to a separate file instead: multi-file layering is already
-proven to work on this exact TrueNAS (same mechanism the Traefik overlay needs anyway), and
-"which services run" becomes purely "which files you list" - nothing depends on an env var
-being honored correctly by an engine whose internals aren't fully visible from outside it.
-
 ## Pointing syslog-only devices at this
 
 For hardware that can't run Alloy (UniFi UDM, switches, Proxmox via `rsyslog` forwarding,
 TrueNAS's own system logs) - point its remote-logging/syslog-server setting at the full-stack
 host's IP, UDP port `514`. No agent, no config on this side beyond what's already in
-`alloy/config.alloy`.
+`config/alloy/config.alloy`.
 
 ## Verify
 
@@ -166,7 +178,7 @@ host's IP, UDP port `514`. No agent, no config on this side beyond what's alread
 ## Adding a new agent-only host
 
 1. Clone this repo onto the host.
-2. `cp .env.example .env`, set `ALLOY_DATA_PATH` and `LOKI_PUSH_URL` (pointing at the real
-   Loki host).
-3. `docker compose up -d` - only `alloy` starts, since `docker-compose.full.yml` is never
-   applied here.
+2. `cp .env.example .env`, set `ALLOY_DATA_PATH` (or leave it for the `./data/alloy` default)
+   and `LOKI_PUSH_URL` (pointing at the real Loki host).
+3. `docker compose up -d` - only `alloy` starts, since the `full` profile is never activated
+   here.

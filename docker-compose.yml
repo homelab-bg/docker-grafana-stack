@@ -1,16 +1,62 @@
 services:
-  # Always starts, on every host (full-stack or agent-only alike). Same
-  # image/config everywhere; the only thing that differs per-host is
-  # LOKI_PUSH_URL in .env. Deliberately not split into a separate repo -
-  # splitting would mean two places to bump the version pin, and they'd
-  # drift eventually.
+  # Only starts when the "full" profile is active (COMPOSE_PROFILES=full in
+  # .env, or `docker compose --profile full up -d`) - the host actually
+  # running the receiving server. Agent-only hosts never bring this up.
+  #
+  # NOTE: confirmed live that TrueNAS's app engine doesn't honor
+  # COMPOSE_PROFILES from .env the same way the plain CLI does when
+  # deployed via its Custom App include: mechanism - only alloy started.
+  # Deliberately not re-solved here yet (tracked separately) - this
+  # profile-based structure is correct for plain `docker compose`
+  # deployments (docker-green, local testing); the TrueNAS deployment
+  # path needs its own fix before relying on this against that host again.
+  loki:
+    image: grafana/loki:3.7.8
+    container_name: loki
+    profiles: ["full"]
+    restart: unless-stopped
+    # Loki's official image's own non-root user. chown the data path to
+    # match before first start (see README) - mismatched ownership is the
+    # most common first-boot failure with this image.
+    user: "10001:10001"
+    volumes:
+      - ${LOKI_DATA_PATH:-./data/loki}:/loki
+      - ./config/loki/loki-config.yaml:/etc/loki/config.yaml:ro
+    command: ["-config.file=/etc/loki/config.yaml"]
+    ports:
+      - "3100:3100"
+    networks: [grafana_stack]
+
+  grafana:
+    image: grafana/grafana:13.2.3
+    container_name: grafana
+    profiles: ["full"]
+    restart: unless-stopped
+    # Grafana's official image's own non-root user - same chown note as loki.
+    user: "472:472"
+    depends_on: [loki]
+    volumes:
+      - ${GRAFANA_DATA_PATH:-./data/grafana}:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL}
+    ports:
+      - "3000:3000"
+    networks: [grafana_stack]
+
+  # No profile - always starts, on every host (full-stack or agent-only
+  # alike). Same image/config everywhere; the only thing that differs
+  # per-host is LOKI_PUSH_URL in .env. Deliberately not split into a
+  # separate repo - splitting would mean two places to bump the version
+  # pin, and they'd drift eventually.
   alloy:
     image: grafana/alloy:v1.20.1
     container_name: alloy
     restart: unless-stopped
     volumes:
-      - ${ALLOY_DATA_PATH}:/var/lib/alloy/data
-      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ${ALLOY_DATA_PATH:-./data/alloy}:/var/lib/alloy/data
+      - ./config/alloy/config.alloy:/etc/alloy/config.alloy:ro
       # :ro only blocks writes to the socket *file* - it does not restrict
       # which Docker API calls can be made once connected (socket access is
       # binary, not read/write-scoped at the API level). Still the standard
