@@ -32,6 +32,16 @@ storage_config:
     cache_location: /loki/tsdb-cache
     cache_ttl: 24h
 
+ingester:
+  wal:
+    # Confirmed live (docker-green test run) - Loki's own default
+    # (ingester.wal.dir, unset) is "/wal", outside /loki entirely. Only
+    # /loki is part of the named volume whose ownership Docker
+    # auto-initializes to the image's non-root user (10001:10001) - "/wal"
+    # at the container root isn't, so the ingester failed to start
+    # ("creating WAL folder at /wal: mkdir wal: permission denied").
+    dir: /loki/wal
+
 compactor:
   working_directory: /loki/compactor
   compaction_interval: 10m
