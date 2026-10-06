@@ -19,9 +19,12 @@ when `full` is explicitly activated," not the reverse.
 
 - **Full-stack host** (currently: TrueNAS) - `--profile full` (or `COMPOSE_PROFILES=full` in
   `.env`) brings up all three. Receives everything: its own Docker container logs, syslog
-  from network gear, and pushes from every agent-only host.
+  from network gear, and pushes from every agent-only host. The same `COMPOSE_PROFILES` value
+  also selects Alloy's syslog component (see "Pointing syslog-only devices at this" below) -
+  one var, no extra step.
 - **Agent-only host** (`docker-green`, `docker-mcp-agents`, etc.) - no profile flag, so only
-  `alloy` starts, shipping that host's own Docker container logs to the full-stack host's Loki.
+  `alloy` starts, shipping that host's own Docker container logs to the full-stack host's Loki,
+  with no syslog receiver active.
 
 **Known open issue, not yet resolved**: confirmed live that TrueNAS's app engine doesn't
 honor `COMPOSE_PROFILES` from `.env` the same way the plain CLI does when deployed via its
@@ -45,7 +48,9 @@ to bump the version pin.
 docker-compose.yml           # alloy (default) + loki/grafana (profile: full)
 docker-compose.traefik.yml   # optional overlay - see below
 config/
-  alloy/config.alloy
+  alloy/base.alloy    # always loaded - Docker log shipping, every host
+  alloy/full.alloy    # syslog receiver - only loaded when COMPOSE_PROFILES=full
+  alloy/empty.alloy   # no-op placeholder - loaded instead on agent-only hosts
   loki/loki-config.yaml
   grafana/provisioning/datasources/loki.yaml
 ```
@@ -191,8 +196,31 @@ paste into a separate TrueNAS environment-variables form.
 
 For hardware that can't run Alloy (UniFi UDM, switches, Proxmox via `rsyslog` forwarding,
 TrueNAS's own system logs) - point its remote-logging/syslog-server setting at the full-stack
-host's IP, UDP port `514`. No agent, no config on this side beyond what's already in
-`config/alloy/config.alloy`.
+host's IP, UDP port `514`. No agent, no config on this side beyond what's already enabled by
+`COMPOSE_PROFILES=full` on that host.
+
+Alloy runs in directory-loading mode (`alloy run` against a directory, not a single file) so
+the syslog receiver can be a genuinely separate component from the Docker-log-shipping logic
+every host runs. `config/alloy/base.alloy` is always mounted; a second mount resolves to
+`./config/alloy/${COMPOSE_PROFILES:-empty}.alloy` - `empty.alloy` (no-op) when unset,
+`full.alloy` (the real `loki.source.syslog` component) when `COMPOSE_PROFILES=full`. This
+deliberately reuses the same `COMPOSE_PROFILES` value already used to gate `loki`/`grafana`,
+rather than adding a second, parallel toggle var - so the syslog receiver is only active on
+the full-stack host, not every agent-only host by default.
+
+**Known, accepted fragility**: this works by matching the file's name to `COMPOSE_PROFILES`'s
+literal value. Compose allows multiple comma-separated profiles in one `COMPOSE_PROFILES`
+(e.g. `full,debug`) - if that's ever done here, the substitution would try to mount a
+nonexistent `full,debug.alloy` and the container would fail to start. Not a concern today,
+since this repo only ever defines the one `full` profile - just worth knowing if a second
+profile gets added later.
+
+**TrueNAS note**: this toggle is plain `${VAR}` substitution, which - unlike `COMPOSE_PROFILES`
+actually *activating* the `full` profile for `loki`/`grafana` (confirmed broken through
+TrueNAS's `include:` mechanism, see "Known open issue" above) - works fine through `include:`
+either way. So on TrueNAS, setting `COMPOSE_PROFILES=full` in `.env` will correctly pick
+`full.alloy` for this mount, even while `loki`/`grafana` still fail to start for the unrelated,
+still-unresolved reason above.
 
 ## Verify
 

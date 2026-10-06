@@ -1,6 +1,6 @@
 # Same self-labeling pattern the docker-truenas stacks use, applied to this
 # stack's own containers too - without it, Alloy's job/stack relabeling
-# (see config/alloy/config.alloy) has nothing to promote for loki/grafana/
+# (see config/alloy/base.alloy) has nothing to promote for loki/grafana/
 # alloy themselves. STACK_NAME labels *this* stack for the monitoring
 # system to query by - not "the stack that's monitoring", which is what
 # the previous name (MONITORING_STACK) misleadingly implied.
@@ -93,7 +93,20 @@ services:
     restart: unless-stopped
     volumes:
       - ${ALLOY_DATA_PATH:-alloy_data}:/var/lib/alloy/data
-      - ./config/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Directory-loading mode, not a single file - lets the syslog
+      # receiver live in a genuinely separate file (full.alloy) that's
+      # only mounted in on the intended receiving host, instead of every
+      # agent-only host getting a listener it'll never use.
+      - ./config/alloy/base.alloy:/etc/alloy/config.d/base.alloy:ro
+      # Reuses COMPOSE_PROFILES directly (already set to "full" on the
+      # full-stack host to gate loki/grafana below) rather than adding a
+      # second toggle var - unset resolves to empty.alloy (no-op),
+      # COMPOSE_PROFILES=full resolves to full.alloy (the real syslog
+      # component). See config/alloy/full.alloy for why its filename is
+      # load-bearing, and the README for the (currently moot) caveat
+      # about multiple comma-separated profiles in one COMPOSE_PROFILES
+      # value.
+      - ./config/alloy/${COMPOSE_PROFILES:-empty}.alloy:/etc/alloy/config.d/syslog.alloy:ro
       # :ro only blocks writes to the socket *file* - it does not restrict
       # which Docker API calls can be made once connected (socket access is
       # binary, not read/write-scoped at the API level). Still the standard
@@ -105,12 +118,16 @@ services:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
       - --storage.path=/var/lib/alloy/data
-      - /etc/alloy/config.alloy
+      - /etc/alloy/config.d/
     ports:
       - "12345:12345" # Alloy's own UI - component graph/debugging, optional
-      # Syslog receiver - only meaningful on hosts you've actually pointed
-      # UDM/Proxmox/other syslog-forwarding config at (normally just the
-      # full-stack host). Harmless idle listener everywhere else.
+      # Syslog receiver - the component behind this port only exists at
+      # all when COMPOSE_PROFILES=full (see the volumes note above),
+      # normally just the full-stack host. Still a published port
+      # mapping on every host (Compose doesn't support conditional ports
+      # within one service definition) - but with nothing listening
+      # inside the container on agent-only hosts now, instead of an
+      # always-on listener as before.
       - "514:514/udp"
     networks: [grafana_stack]
     labels:

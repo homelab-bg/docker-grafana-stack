@@ -1,0 +1,6 @@
+// Default mount target for the agent-only case - no components.
+// docker-compose.yml mounts ./config/alloy/${COMPOSE_PROFILES:-empty}.alloy
+// as the second file in Alloy's config directory; this is what gets picked
+// when COMPOSE_PROFILES is unset (every agent-only host), so the syslog
+// receiver in full.alloy simply isn't loaded there. Intentionally empty,
+// not deleted - the mount needs a real file to point at either way.

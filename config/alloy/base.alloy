@@ -1,10 +1,16 @@
 // Same config on every host, full-stack or agent-only alike - only
 // LOKI_PUSH_URL (set in .env) differs between them. Confirmed syntax for
 // every component below against Grafana's own current docs while writing
-// this (discovery.docker, loki.source.docker, loki.relabel,
-// loki.source.syslog, loki.write) - component names/arguments change
-// between Alloy releases often enough that this is worth re-checking
-// rather than assuming, if this file is touched again after a version bump.
+// this (discovery.docker, loki.source.docker, loki.relabel, loki.write) -
+// component names/arguments change between Alloy releases often enough
+// that this is worth re-checking rather than assuming, if this file is
+// touched again after a version bump.
+//
+// Loaded via Alloy's directory-loading mode alongside whichever of
+// full.alloy/empty.alloy COMPOSE_PROFILES selects (see docker-compose.yml
+// and full.alloy) - this file alone has no syslog receiver; that's
+// entirely in full.alloy now, kept out of every agent-only host by
+// default.
 
 discovery.docker "containers" {
   host = "unix:///var/run/docker.sock"
@@ -53,20 +59,6 @@ loki.source.docker "default" {
   targets       = discovery.docker.containers.targets
   forward_to    = [loki.write.default.receiver]
   relabel_rules = loki.relabel.docker.rules
-}
-
-// Syslog receiver - for appliances that can't run an agent (UniFi UDM,
-// switches, Proxmox via rsyslog forwarding, TrueNAS itself). Point their
-// remote-logging config at whichever host's Alloy you want receiving this
-// - normally just the full-stack host. An idle, unused listener on any
-// other host this config runs on.
-loki.source.syslog "network_devices" {
-  listener {
-    address  = "0.0.0.0:514"
-    protocol = "udp"
-  }
-
-  forward_to = [loki.write.default.receiver]
 }
 
 loki.write "default" {

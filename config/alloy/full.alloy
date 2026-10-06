@@ -1,0 +1,24 @@
+// Syslog receiver - for appliances that can't run an agent (UniFi UDM,
+// switches, Proxmox via rsyslog forwarding, TrueNAS itself). Point their
+// remote-logging config at whichever host's Alloy you want receiving this
+// - normally just the full-stack host.
+//
+// This file's NAME is load-bearing, not just descriptive: docker-compose.yml
+// mounts ./config/alloy/${COMPOSE_PROFILES:-empty}.alloy as this component's
+// source, reusing the same COMPOSE_PROFILES value already used to gate
+// loki/grafana rather than adding a second, separate toggle var. So this
+// file must be named exactly "full.alloy" to match COMPOSE_PROFILES=full on
+// the full-stack host - renaming it breaks the mount. See docker-compose.yml
+// and empty.alloy for the agent-only-host counterpart.
+//
+// forward_to references loki.write.default, declared in base.alloy - both
+// files load together via Alloy's directory-loading mode (alloy run on a
+// directory merges every *.alloy file inside it into one configuration).
+loki.source.syslog "network_devices" {
+  listener {
+    address  = "0.0.0.0:514"
+    protocol = "udp"
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
