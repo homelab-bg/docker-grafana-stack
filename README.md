@@ -26,17 +26,17 @@ when `full` is explicitly activated," not the reverse.
   `alloy` starts, shipping that host's own Docker container logs to the full-stack host's Loki,
   with no syslog receiver active.
 
-**Known open issue, not yet resolved**: confirmed live that TrueNAS's app engine doesn't
-honor `COMPOSE_PROFILES` from `.env` the same way the plain CLI does when deployed via its
-Custom App `include:` mechanism - only `alloy` started there, `loki`/`grafana` didn't, despite
-the env var genuinely being set. Ordinary `${VAR}` substitution into YAML content worked fine
-through the same `include:`; profile activation specifically - a control-plane decision about
-which services exist in the resolved model at all, not a text substitution - apparently isn't
-read the same way. This repo went through a separate-file-per-layer structure for a while
-specifically to work around that, then back to this single-file+profiles structure (simpler,
-correct for every plain-CLI deployment) once higher priority became validating the design on
-`docker-green` first. **The TrueNAS-specific profile-activation problem is still real and
-still unresolved** - don't assume this works against TrueNAS again without re-testing it.
+**TrueNAS-specific wrinkle, resolved via a third overlay**: confirmed live that TrueNAS's app
+engine doesn't honor `COMPOSE_PROFILES` from `.env` the same way the plain CLI does when
+deployed via its Custom App `include:` mechanism - only `alloy` started there, `loki`/`grafana`
+didn't, despite the env var genuinely being set. Ordinary `${VAR}` substitution into YAML
+content works fine through the same `include:` (confirmed - Alloy's syslog file selection,
+below, relies on exactly this); profile *activation* specifically - a control-plane decision
+about which services exist in the resolved model at all, not a text substitution - isn't read
+the same way. `docker-compose.truenas.yml` works around it the same way
+`docker-traefik-portainer`'s own TrueNAS overlay already does for `dnsweaver`: unconditionally
+un-gates `loki`/`grafana` (`profiles: !reset []`) rather than relying on profile activation at
+all - see "Deploying on TrueNAS" below.
 
 Deliberately not split into a separate `docker-alloy` repo for the agent-only case - it's the
 exact same image/config either way, and a second repo would just be a second place to forget
@@ -47,6 +47,7 @@ to bump the version pin.
 ```
 docker-compose.yml           # alloy (default) + loki/grafana (profile: full)
 docker-compose.traefik.yml   # optional overlay - see below
+docker-compose.truenas.yml   # TrueNAS-only overlay - see "Deploying on TrueNAS" below
 config/
   alloy/base.alloy    # always loaded - Docker log shipping, every host
   alloy/full.alloy    # syslog receiver - only loaded when COMPOSE_PROFILES=full
@@ -140,52 +141,76 @@ When the Traefik overlay is applied, its `traefik.*` labels merge on top of thes
 merges `labels:`/`logging:` as maps across `-f` files the same way it merges `networks:`, so
 the overlay doesn't need to redeclare `logging_jobname`/`stackname` itself.
 
-## Deploying on TrueNAS (Custom App) - currently blocked, see above
+## Deploying on TrueNAS (Custom App)
 
 TrueNAS SCALE's own App system runs this, not a plain `docker compose` CLI invocation - via
 Apps > Discover Apps > Custom App > Install via YAML, using Compose's `include:` directive to
-point at the real file instead of pasting YAML into the UI (same pattern already used for
+point at the real files instead of pasting YAML into the UI (same pattern already used for
 `docker-traefik-portainer` on this TrueNAS).
 
-**This doesn't fully work yet** - see the "Known open issue" note under "Two deployment
-shapes" above. `COMPOSE_PROFILES=full` in `.env` isn't honored through TrueNAS's `include:`
-the way it is through the plain CLI, so `loki`/`grafana` won't come up this way until that's
-actually solved (deferred for now, while validating the rest of the design on `docker-green`).
-What follows is accurate for getting `alloy`-only running there today; treat the `full`
-profile part as unverified against TrueNAS specifically.
+**`docker-compose.truenas.yml` is required for a full-stack deployment here, not optional**
+- see the "TrueNAS-specific wrinkle" note under "Two deployment shapes" above.
+`COMPOSE_PROFILES=full` in `.env` doesn't activate the `full` profile through TrueNAS's
+`include:` the way it does through the plain CLI, so without this overlay `loki`/`grafana`
+never start. The overlay unconditionally un-gates both services instead
+(`profiles: !reset []`), so profile activation is never relied on against TrueNAS at all.
 
 Clone directly into the project folder - no separate `/stack` subfolder needed anymore.
 That nesting existed only because the old structure's top-level `alloy/`/`loki/`/`grafana/`
 config folders would otherwise collide with sibling data directories of the same name; now
 that config lives entirely under `config/`, there's nothing at the repo's top level to
 collide with (confirmed by inspection - `config/`, `docker-compose*.yml`, `.env` are the only
-top-level entries). `.gitignore` covers `/loki/`, `/grafana/`, `/alloy/` for exactly this case:
+top-level entries). `.gitignore` covers `/loki/`, `/grafana/`, `/alloy/` for exactly this case.
+
+If the dataset directories (`loki`/`grafana`/`alloy`) already exist before cloning - likely,
+if you've pre-created them as separate ZFS datasets - `git clone` refuses outright
+(`destination path '.' already exists and is not an empty directory`, regardless of whether
+anything actually collides path-wise). Confirmed live: `git init` in place instead works
+fine, since `git checkout` only objects to real path-level conflicts with tracked files, and
+there isn't one here:
 
 ```sh
-git clone git@github.com:homelab-bg/docker-grafana-stack.git /mnt/nvme_pool1/Apps/grafana
 cd /mnt/nvme_pool1/Apps/grafana
+git init
+git remote add origin git@github.com:homelab-bg/docker-grafana-stack.git
+git fetch origin main
+git checkout main
 cp .env.example .env
 # edit .env: LOKI_DATA_PATH/GRAFANA_DATA_PATH/ALLOY_DATA_PATH point at sibling data dirs
-# inside this same directory (./loki, ./grafana, ./alloy), a real GRAFANA_ADMIN_PASSWORD, and
-# LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push
+# inside this same directory (./loki, ./grafana, ./alloy), a real GRAFANA_ADMIN_PASSWORD,
+# LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push, and COMPOSE_PROFILES=full
 chown -R 10001:10001 /mnt/nvme_pool1/Apps/grafana/loki
 chown -R 472:472 /mnt/nvme_pool1/Apps/grafana/grafana
 ```
 
-```yaml
-include:
-  - /mnt/nvme_pool1/Apps/grafana/docker-compose.yml
-```
+Also confirmed live: TrueNAS datasets are typically created root-owned, while `git
+init`/`checkout` run as your own user - `git pull` then refuses with "detected dubious
+ownership in repository" (a post-CVE-2022-24765 safety check, not specific to this repo).
+Benign here (the mismatch is just how the dataset's mountpoint got created, not a real
+multi-tenant threat) - fix it the way git itself suggests:
 
-If you also want the Traefik overlay, use `path:` with a list rather than a second top-level
-`include:` entry - confirmed live that two separate entries defining the same service (here,
-`grafana`) raises `services.grafana conflicts with imported resource`, since Compose treats
-separate `include:` entries as independent sub-projects, not a base+override pair:
+```sh
+git config --global --add safe.directory /mnt/nvme_pool1/Apps/grafana
+```
 
 ```yaml
 include:
   - path:
       - /mnt/nvme_pool1/Apps/grafana/docker-compose.yml
+      - /mnt/nvme_pool1/Apps/grafana/docker-compose.truenas.yml
+```
+
+If you also want the Traefik overlay, add it to the same `path:` list - use one `include:`
+entry with a `path:` list, not a second top-level `include:` entry, confirmed live that two
+separate entries defining the same service (here, `grafana`) raises `services.grafana
+conflicts with imported resource`, since Compose treats separate `include:` entries as
+independent sub-projects, not a base+override pair:
+
+```yaml
+include:
+  - path:
+      - /mnt/nvme_pool1/Apps/grafana/docker-compose.yml
+      - /mnt/nvme_pool1/Apps/grafana/docker-compose.truenas.yml
       - /mnt/nvme_pool1/Apps/grafana/docker-compose.traefik.yml
 ```
 
@@ -219,10 +244,10 @@ profile gets added later.
 
 **TrueNAS note**: this toggle is plain `${VAR}` substitution, which - unlike `COMPOSE_PROFILES`
 actually *activating* the `full` profile for `loki`/`grafana` (confirmed broken through
-TrueNAS's `include:` mechanism, see "Known open issue" above) - works fine through `include:`
-either way. So on TrueNAS, setting `COMPOSE_PROFILES=full` in `.env` will correctly pick
-`full.alloy` for this mount, even while `loki`/`grafana` still fail to start for the unrelated,
-still-unresolved reason above.
+TrueNAS's `include:` mechanism, worked around via `docker-compose.truenas.yml` - see
+"Deploying on TrueNAS" above) - works fine through `include:` either way. So on TrueNAS,
+setting `COMPOSE_PROFILES=full` in `.env` correctly picks `full.alloy` for this mount on its
+own, independent of whatever un-gates `loki`/`grafana` themselves.
 
 ## Verify
 

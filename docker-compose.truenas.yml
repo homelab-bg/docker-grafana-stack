@@ -1,0 +1,17 @@
+---
+# TrueNAS overlay - layer on top of docker-compose.yml (and optionally
+# docker-compose.traefik.yml) when deploying via Apps > Discover Apps >
+# Custom App > Install via YAML, using include:. Same pattern already used
+# for docker-traefik-portainer's dnsweaver on this TrueNAS.
+#
+# Confirmed live: COMPOSE_PROFILES=full in .env, read through TrueNAS's
+# include: mechanism, feeds ordinary ${VAR} substitution fine (e.g. Alloy's
+# syslog file selection - see README) but does NOT activate the "full"
+# profile - loki/grafana never started. So they're un-gated here instead,
+# unconditionally - correct for this file specifically, since anyone using
+# it is by definition deploying the full-stack host.
+services:
+  loki:
+    profiles: !reset []
+  grafana:
+    profiles: !reset []
