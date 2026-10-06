@@ -71,6 +71,14 @@ loki.source.syslog "network_devices" {
 
 loki.write "default" {
   endpoint {
-    url = env("LOKI_PUSH_URL")
+    # sys.env(), not the bare env() stdlib function - confirmed live
+    # (docker-green test run) that env() is deprecated as of this
+    # Alloy version, logged as a startup warning even though the
+    # component still evaluated fine. sys.env() is the documented
+    # replacement; unrelated to the LOKI_PUSH_URL value itself, which is
+    # passed straight into the container's own environment (not sourced
+    # from a shell profile), so the usual systemd/profile-inheritance
+    # gotchas with sys.env() don't apply here.
+    url = sys.env("LOKI_PUSH_URL")
   }
 }
