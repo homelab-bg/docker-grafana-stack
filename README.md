@@ -123,17 +123,18 @@ stacks use on their own containers - `logging_jobname`/`stackname` Docker labels
 unconditionally in the base `docker-compose.yml` (not gated behind the Traefik overlay).
 Alloy's own `discovery.docker` picks these up from every container on the host regardless of
 which compose project it belongs to, and promotes them to real `job`/`stack` Loki labels (see
-`config/alloy/config.alloy`) - so this stack's own logs show up in Grafana queryable the same
+`config/alloy/base.alloy`) - so this stack's own logs show up in Grafana queryable the same
 way every other stack's do, e.g. `{stack="grafana-stack"}`.
 
 `STACK_NAME` in `.env` controls the value (defaults to `grafana-stack` if unset - see
 `.env.example`). Named `STACK_NAME` here rather than `MONITORING_STACK` (what the
 `docker-truenas` stacks call the equivalent variable) - the old name reads as "the stack
 that's doing the monitoring," when what it actually controls is "what to label *this* stack
-as, inside the monitoring system." Deliberately only renamed in this repo for now, not
-across the other four - **outstanding, tracked separately**: rename `MONITORING_STACK` to
-`STACK_NAME` in `docker-home-assistant-stack`, `docker-traefik-portainer`, `docker-vscode`,
-and `docker-hello-world` too, once this is validated.
+as, inside the monitoring system." Same rename already done in `docker-traefik-portainer`
+(confirmed live - `traefik`/`portainer`/`dnsweaver` all now carry `stackname: "traefik-portainer"`)
+- **outstanding, tracked separately**: rename `MONITORING_STACK` to `STACK_NAME` in
+`docker-home-assistant-stack`, `docker-vscode`, and `docker-hello-world` too, once this is
+validated.
 
 When the Traefik overlay is applied, its `traefik.*` labels merge on top of these - Compose
 merges `labels:`/`logging:` as maps across `-f` files the same way it merges `networks:`, so
