@@ -24,6 +24,11 @@ services:
       - 3000
     networks:
       - traefik
+    # Moved from the base file - only ever meaningful once Grafana is
+    # actually reachable at something other than http://<host>:3000, which
+    # is exactly the condition for applying this overlay at all.
+    environment:
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL}
     labels:
       traefik.enable: true
       traefik.http.routers.grafana.rule: Host(`${GRAFANA_HOST:?set GRAFANA_HOST to Grafana's hostname}`)

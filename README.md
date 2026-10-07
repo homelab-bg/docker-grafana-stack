@@ -112,10 +112,13 @@ over the public internet.
 docker compose -f docker-compose.yml -f docker-compose.traefik.yml --profile full up -d
 ```
 
-Needs `GRAFANA_HOST` and `NETWORK` (defaults to `traefik`, matching the shared external
-network every other stack joins) set in `.env` - see `.env.example`. Not needed at all for
-the default LAN-only deployment. (`STACK_NAME` is unrelated to this overlay specifically -
-see "Self-labeling" below; it applies regardless of whether Traefik is used.)
+Needs `GRAFANA_HOST`, `NETWORK` (defaults to `traefik`, matching the shared external
+network every other stack joins), and `GRAFANA_ROOT_URL` set in `.env` - see `.env.example`.
+`GF_SERVER_ROOT_URL` lives in this overlay, not the base file - it's only ever meaningful once
+Grafana is reachable at something other than `http://<host>:3000`, exactly the condition for
+applying this overlay at all. Not needed at all for the default LAN-only deployment.
+(`STACK_NAME` is unrelated to this overlay specifically - see "Self-labeling" below; it
+applies regardless of whether Traefik is used.)
 
 ## Self-labeling
 
