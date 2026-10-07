@@ -183,6 +183,25 @@ chown -R 10001:10001 /mnt/nvme_pool1/Apps/grafana/loki
 chown -R 472:472 /mnt/nvme_pool1/Apps/grafana/grafana
 ```
 
+**Also confirmed live: Loki failing with `open /etc/loki/config.yaml: permission denied`** even
+though the file itself looks fine. Root cause - TrueNAS creates dataset directories owned
+`root:root` (or whoever ran `git checkout`) with mode `0770`, i.e. "other" gets zero access,
+not even traversal. `loki` runs as UID/GID `10001` (neither the owner nor in the `root`
+group), so it can't even descend into the project directory to reach `config/loki/
+loki-config.yaml`, regardless of that file's own permissions - same underlying class of issue
+as the `technitium_token` permission note in `docker-traefik-portainer`'s README, just at the
+directory-traversal level instead of a single file. Fix (needs `sudo` - these directories are
+root-owned):
+```sh
+sudo chmod o+x /mnt/nvme_pool1/Apps/grafana
+sudo chmod -R o+rX /mnt/nvme_pool1/Apps/grafana/config
+```
+Scoped deliberately - the first is non-recursive (only grants traversal through the project
+root itself, touches nothing inside it), the second only reaches `config/`, a sibling of the
+`loki`/`grafana`/`alloy` dataset directories, never a descendant of them. Neither command can
+affect those datasets' own ownership/permissions, which stay exactly as set above. `alloy`
+doesn't need this - its image runs as root, unaffected by directory permissions either way.
+
 Also confirmed live: TrueNAS datasets are typically created root-owned, while `git
 init`/`checkout` run as your own user - `git pull` then refuses with "detected dubious
 ownership in repository" (a post-CVE-2022-24765 safety check, not specific to this repo).
