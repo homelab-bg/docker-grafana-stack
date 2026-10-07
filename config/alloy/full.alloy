@@ -70,10 +70,24 @@ loki.relabel "syslog_labels" {
     replacement  = "syslog"
   }
 
-  // Deliberately NOT promoting facility/severity/app_name to labels -
-  // query those from the log line via LogQL instead. Turning every
-  // distinct value into a label is how Loki installations end up with
-  // runaway stream cardinality as more device types get added here.
+  // app_name IS promoted, unlike facility/severity below - this is the
+  // `logger -t <tag>` value a small custom forwarder service on the SMHub
+  // sets per log file (otbr-agent, zigbee2mqtt, smhub-broker,
+  // smhub-services, smhub-ui-access, smhub-ui-error - see
+  // smhub-stability-investigation.md), since those apps write straight to
+  // their own flat files and bypass syslog's own facility/tag otherwise.
+  // Bounded to that small known set per device, not arbitrary per-message
+  // values, so it doesn't hit the cardinality problem the facility/severity
+  // comment below warns about.
+  rule {
+    source_labels = ["__syslog_message_app_name"]
+    target_label  = "app"
+  }
+
+  // Deliberately NOT promoting facility/severity to labels - query those
+  // from the log line via LogQL instead. Turning every distinct value into
+  // a label is how Loki installations end up with runaway stream
+  // cardinality as more device types get added here.
 }
 
 loki.source.syslog "network_devices" {
