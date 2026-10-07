@@ -14,11 +14,65 @@
 // forward_to references loki.write.default, declared in base.alloy - both
 // files load together via Alloy's directory-loading mode (alloy run on a
 // directory merges every *.alloy file inside it into one configuration).
-loki.source.syslog "network_devices" {
-  listener {
-    address  = "0.0.0.0:514"
-    protocol = "udp"
+//
+// Two listeners, not one, because "syslog" isn't one wire format - learned
+// this the hard way against the SMHub (BusyBox syslogd): it only emits
+// legacy RFC3164, which a default (RFC5424) listener rejects outright
+// ("expecting a version value in the range 1-999" - the parser reading
+// BusyBox's timestamp text where RFC5424 expects a version integer). Each
+// device needs pointing at whichever port matches what it *actually* sends,
+// confirmed per-device (check Alloy's own logs for parse warnings after
+// pointing a new source here) rather than assumed from the vendor:
+//   - 514/udp  rfc3164 - confirmed: SMHub (BusyBox syslogd has no format
+//     option at all - see smhub-stability-investigation.md)
+//   - 1514/udp rfc5424 - NOT YET CONFIRMED against any real device. Proxmox
+//     can be pointed at either (real rsyslog - set `template =
+//     "RSYSLOG_SyslogProtocol23Format"` on the omfwd forwarding action for
+//     5424; omit it and it's 3164-style like everything else below). UniFi
+//     UDM/switches and TrueNAS's own remote-syslog setting have no documented
+//     format choice - verify empirically before assuming either defaults
+//     here rather than to 514.
+loki.relabel "syslog_labels" {
+  forward_to = []
+
+  // Pulled from the message content itself (both RFC3164 and RFC5424 carry
+  // a hostname field) - not hardcoded per-listener, since both ports will
+  // end up receiving more than one device once UniFi/Proxmox/TrueNAS are
+  // added. __-prefixed internal labels are dropped unless relabeled like
+  // this (standard Prometheus/Loki convention).
+  rule {
+    source_labels = ["__syslog_message_hostname"]
+    target_label  = "host"
   }
 
-  forward_to = [loki.write.default.receiver]
+  // Fallback/cross-check for any sender that leaves the hostname field
+  // empty or wrong - the connection source IP is always present regardless
+  // of what the device puts in the message body.
+  rule {
+    source_labels = ["__syslog_connection_ip_address"]
+    target_label  = "source_ip"
+  }
+
+  // Deliberately NOT promoting facility/severity/app_name to labels -
+  // query those from the log line via LogQL instead. Turning every
+  // distinct value into a label is how Loki installations end up with
+  // runaway stream cardinality as more device types get added here.
+}
+
+loki.source.syslog "network_devices" {
+  listener {
+    address                          = "0.0.0.0:514"
+    protocol                         = "udp"
+    syslog_format                    = "rfc3164"
+    rfc3164_default_to_current_year  = true // RFC3164 timestamps carry no year
+  }
+
+  listener {
+    address       = "0.0.0.0:1514"
+    protocol      = "udp"
+    syslog_format = "rfc5424"
+  }
+
+  relabel_rules = loki.relabel.syslog_labels.rules
+  forward_to    = [loki.write.default.receiver]
 }
