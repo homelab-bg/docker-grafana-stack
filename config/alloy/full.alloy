@@ -56,6 +56,20 @@ loki.relabel "syslog_labels" {
     target_label  = "source_ip"
   }
 
+  // Without this, every syslog device showed up in Grafana's Logs Drilldown
+  // app as "unknown_service" - confirmed that's Loki's own auto-derived
+  // service_name, not just a UI quirk: it checks a fixed fallback chain of
+  // labels (service, app, application, ... job, k8s_job_name) and only
+  // falls back to "unknown_service" when none are set. `job` is on that
+  // chain, so a static value here is enough to get Loki to derive
+  // service_name itself - same pattern base.alloy already uses for Docker
+  // logs (job: "containerlogs", static stack-wide, with other labels doing
+  // the per-source distinguishing - here that's `host`/`source_ip` above).
+  rule {
+    target_label = "job"
+    replacement  = "syslog"
+  }
+
   // Deliberately NOT promoting facility/severity/app_name to labels -
   // query those from the log line via LogQL instead. Turning every
   // distinct value into a label is how Loki installations end up with
