@@ -248,12 +248,14 @@ that host.
 
 "Syslog" isn't one wire format - `config/alloy/full.alloy` runs two listeners for this reason,
 confirmed against a real device (BusyBox `syslogd` on an SMLIGHT SMHub) that only speaks the
-legacy one and gets rejected outright by a listener defaulted to the other:
+legacy one and gets rejected outright by a listener defaulted to the other. RFC5424 (the
+current IETF standard) sits on the default syslog port; the legacy format sits on the
+non-default one, deliberately - not the other way round:
 
 | Port        | Format  | Confirmed against                                              |
 |-------------|---------|------------------------------------------------------------------|
-| `514/udp`   | RFC3164 | SMHub (BusyBox `syslogd` - no format option exists on that device) |
-| `1514/udp`  | RFC5424 | Not yet confirmed against a real device                          |
+| `514/udp`   | RFC5424 | Not yet confirmed against a real device                          |
+| `1514/udp`  | RFC3164 | SMHub (BusyBox `syslogd` - no format option exists on that device) |
 
 Don't assume which port a new device belongs on from its vendor or OS family - rsyslog-based
 systems (Proxmox, TrueNAS SCALE) can typically be pointed at either depending on config, and
