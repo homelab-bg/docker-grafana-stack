@@ -15,3 +15,11 @@ services:
     profiles: !reset []
   grafana:
     profiles: !reset []
+  # Second syslog listener (1514/udp, rfc5424) alongside the base file's
+  # existing 514/udp - appended, not replaced: Compose merges `ports` arrays
+  # across -f/include: files by default (same mechanism the `!reset []`
+  # above deliberately opts out of for `profiles`). See config/alloy/
+  # full.alloy for which port expects which format and why there are two.
+  alloy:
+    ports:
+      - "1514:1514/udp"
