@@ -22,16 +22,19 @@
 // BusyBox's timestamp text where RFC5424 expects a version integer). Each
 // device needs pointing at whichever port matches what it *actually* sends,
 // confirmed per-device (check Alloy's own logs for parse warnings after
-// pointing a new source here) rather than assumed from the vendor:
-//   - 514/udp  rfc3164 - confirmed: SMHub (BusyBox syslogd has no format
-//     option at all - see smhub-stability-investigation.md)
-//   - 1514/udp rfc5424 - NOT YET CONFIRMED against any real device. Proxmox
+// pointing a new source here) rather than assumed from the vendor. RFC5424
+// (the current IETF standard) gets the default syslog port; the legacy
+// format gets the non-default one, deliberately - not the other way round:
+//   - 514/udp  rfc5424 - NOT YET CONFIRMED against any real device. Proxmox
 //     can be pointed at either (real rsyslog - set `template =
 //     "RSYSLOG_SyslogProtocol23Format"` on the omfwd forwarding action for
 //     5424; omit it and it's 3164-style like everything else below). UniFi
 //     UDM/switches and TrueNAS's own remote-syslog setting have no documented
 //     format choice - verify empirically before assuming either defaults
-//     here rather than to 514.
+//     here rather than to 1514.
+//   - 1514/udp rfc3164 - confirmed: SMHub (BusyBox syslogd has no format
+//     option at all - see smhub-stability-investigation.md). SMHub's own
+//     /etc/conf.d/syslogd -R target must point at 1514, not 514.
 loki.relabel "syslog_labels" {
   forward_to = []
 
@@ -61,16 +64,16 @@ loki.relabel "syslog_labels" {
 
 loki.source.syslog "network_devices" {
   listener {
-    address                          = "0.0.0.0:514"
-    protocol                         = "udp"
-    syslog_format                    = "rfc3164"
-    rfc3164_default_to_current_year  = true // RFC3164 timestamps carry no year
+    address       = "0.0.0.0:514"
+    protocol      = "udp"
+    syslog_format = "rfc5424"
   }
 
   listener {
-    address       = "0.0.0.0:1514"
-    protocol      = "udp"
-    syslog_format = "rfc5424"
+    address                          = "0.0.0.0:1514"
+    protocol                         = "udp"
+    syslog_format                    = "rfc3164"
+    rfc3164_default_to_current_year  = true // RFC3164 timestamps carry no year
   }
 
   relabel_rules = loki.relabel.syslog_labels.rules
