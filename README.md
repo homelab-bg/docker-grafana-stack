@@ -242,8 +242,24 @@ paste into a separate TrueNAS environment-variables form.
 
 For hardware that can't run Alloy (UniFi UDM, switches, Proxmox via `rsyslog` forwarding,
 TrueNAS's own system logs) - point its remote-logging/syslog-server setting at the full-stack
-host's IP, UDP port `514`. No agent, no config on this side beyond what's already enabled by
-`COMPOSE_PROFILES=full` on that host.
+host's IP, one of two UDP ports depending on which syslog format the device actually sends.
+No agent, no config on this side beyond what's already enabled by `COMPOSE_PROFILES=full` on
+that host.
+
+"Syslog" isn't one wire format - `config/alloy/full.alloy` runs two listeners for this reason,
+confirmed against a real device (BusyBox `syslogd` on an SMLIGHT SMHub) that only speaks the
+legacy one and gets rejected outright by a listener defaulted to the other:
+
+| Port        | Format  | Confirmed against                                              |
+|-------------|---------|------------------------------------------------------------------|
+| `514/udp`   | RFC3164 | SMHub (BusyBox `syslogd` - no format option exists on that device) |
+| `1514/udp`  | RFC5424 | Not yet confirmed against a real device                          |
+
+Don't assume which port a new device belongs on from its vendor or OS family - rsyslog-based
+systems (Proxmox, TrueNAS SCALE) can typically be pointed at either depending on config, and
+UniFi's own remote-syslog setting doesn't document a format choice at all. Point the device at
+a port, send one test message, and check Alloy's own logs for a parse warning like `expecting
+a version value in the range 1-999` (wrong port) before assuming it's working.
 
 Alloy runs in directory-loading mode (`alloy run` against a directory, not a single file) so
 the syslog receiver can be a genuinely separate component from the Docker-log-shipping logic
